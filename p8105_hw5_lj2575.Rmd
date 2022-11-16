@@ -10,6 +10,7 @@ library(tidyverse)
 library(p8105.datasets)
 library(viridis)
 library(readr)
+library(plotly)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -33,24 +34,83 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 Problem 1
 
-Since the solution has been posted and this problem ungraded, I will omit my solution here.
+The solution provided here closely adheres to the posted solution.
 
 
 Problem 2
 
-In this problem, we investigate the data posted by *The Washington Post* on homocides in 50 large U.S. cities. We first provide an overview of the dataset, create a city_state variable, before summarizing within cities to obtain the total number of homocides and the number of unsolved homocides.
+In this problem, we investigate the data posted by *The Washington Post* on homocides in 50 large U.S. cities. We first import the dataset and provide an overview. 
 
 ```{r}
 # import datset and create city_state variable
 homocide <- read_csv("./data/homicide-data.csv")
-
-# total number of homocides and unsolved homocides under each city
-homocide %>% 
-  mutate(city_state = paste(city, state, sep = ", ")) %>%
-  group_by(city_state) %>%
-  summarise(total_homocides = n(), unsolved_homocides = n(disposition == "Closed without arrest" | disposition == "Open/No arrest"))
+head(homocide)
 ```
 
-First we provide an overview of the dataset. With the newly added The dataset contains `r ncol(homocide$)`
+As shown, without the added variable of city_state, the dataset contains `r ncol(homocide) - 1` variables and `r nrow(homocide)` observations. Specifically, the dataset contains the UID of the homocide victim, their first and last name, date reported, race, age, sex; city, state, and coordinates of discovery; as well as the disposition of the case. 
 
-Now, for the city of Baltimode, MD, we estimate the proportion of homocides that are unsolved and save the output as an R object.
+Now, we create a city_state variable and summarize within cities to obtain the total number of homocides and the number of unsolved homocides.
+
+```{r}
+# Create city_state variable
+homocide <- homocide %>% 
+  mutate(
+    state = replace(state, state == "wI", "WI"),
+    city_state = paste(city, state, sep = ", ")
+    )
+
+# Summarise within cities to obtain number of total cases and unsolved cases
+homocide_disposition <- homocide %>% 
+  group_by(city_state) %>%
+  summarise(total_cases = n(), 
+            unsolved_cases = sum(disposition == "Closed without arrest" | disposition == "Open/No arrest"))
+
+# Display results
+head(homocide_disposition)
+```
+
+Now, for the city of Baltimore, MD exclusively, we run the prop.test function to estimate the proportion of homocides that are unsolved.
+
+```{r}
+# use prop.test to estimate proportions; pull test result
+test_bal = homocide_disposition %>%
+  filter(city_state == "Baltimore, MD") %>%
+  mutate(prop_test = map2(unsolved_cases, total_cases, ~prop.test(.x, .y) %>%
+                         broom::tidy())) %>% 
+  unnest() %>%
+  select(city_state, estimate, lower_CI = conf.low, upper_CI = conf.high)
+
+test_bal
+```
+
+We now run this test for every city in the data set and extract the proportion and confidence interval for each.
+
+```{r}
+# Run prop.test for each city
+test_full = homocide_disposition %>% 
+  mutate(prop_test = map2(unsolved_cases, total_cases, ~prop.test(.x, .y) %>%
+                         broom::tidy())) %>% 
+  unnest() %>% #pull estimated proportion and confidence intervals
+  select(city_state, estimate, lower_CI = conf.low, upper_CI = conf.high)
+
+# Display result
+head(test_full)
+```
+
+Finally, for problem 2, we create a plot that shows the estimates and the CIs for each city, while organizing the cities according to the proportion of unsolved homicides.
+
+```{r}
+scatter_ggplot = 
+  test_full %>%
+  mutate(city_state = fct_reorder(city_state, estimate)) %>%
+  ggplot(aes(x = city_state, y = estimate, ymin = lower_CI, ymax = upper_CI)) +
+  geom_point(alpha = 0.5) + 
+  geom_errorbar()
+
+ggplotly(scatter_ggplot)
+```
+
+
+### Problem 3
+
+For this problem, 
